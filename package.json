@@ -1,0 +1,23 @@
+{
+  "name": "csdn-article-auto-pub",
+  "version": "1.4.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "chromedriver": "*",
+    "git-commit-id": "^2.0.1",
+    "node-notifier": "^8.0.0",
+    "selenium-webdriver": "*"
+  },
+  "bin": {
+    "csdn-article-auto-pub": "./index.js"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npm.alibaba-inc.com"
+  }
+}
