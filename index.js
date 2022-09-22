@@ -9,7 +9,14 @@ const {
 } = require('selenium-webdriver');
 const chrome = require("selenium-webdriver/chrome");
 const fs = require('fs');
+const path = require('path');
 const notifier = require('node-notifier');
+const delay = require('await-delay');
+const {
+  findElementsUntilLocated,
+  findElementsWithTextUntilLocated,
+} = require('./lib/util');
+const chokidar = require('chokidar');
 
 function gitCommitId() {
   try {
@@ -19,10 +26,10 @@ function gitCommitId() {
   }
 }
 
-function notify(solutionId) {
+function notify(articleName) {
   notifier.notify({
-    title: 'tpp-solution-auto-build',
-    message: `solutionId ${solutionId} build success!`,
+    title: 'sync-csdn-article-markdown',
+    message: `articleName ${articleName} build success!`,
     timeout: 3,
     closeLabel: 'close',
   });
@@ -44,115 +51,117 @@ function getOptions(isHeadless, userDataDir, url) {
   return options;
 }
 
+
+async function syncArticle(articleInput, articleFilePath) {
+  await articleInput.sendKeys(articleFilePath);
+}
+
 (async function buildSolution() {
-  const solutionId = process.argv[2];
-  // const solutionUrl = `https://tppnext.alibaba-inc.com/solution/${solutionId}/dashboard`;
-  const solutionUrl = `https://tppnext.alibaba-inc.com/web/v1/scenes/solution/${solutionId}?step=pre&tab=meta`;
-  const userDataDir = `${require('os').homedir()}/.tpp-solution-auto-build/chrome-data`;
-  const isDebug = process.argv[3] === '--debug';
-  let options = getOptions(!isDebug, userDataDir, solutionUrl);
+  const articleFileName = process.argv[2];
+  const articleName = articleFileName.replace('.md', '');
+  const articleListUrl = `https://mp.csdn.net/mp_blog/manage/article`;
+  const userDataDir = `${require('os').homedir()}/.sync-csdn-article-markdown/chrome-data`;
+  // const isDebug = process.argv[3] === '--debug';
+  let options = getOptions(false, userDataDir, articleListUrl);
   let driver = await new Builder()
     .forBrowser('chrome')
     .setChromeOptions(options)
     .build();
 
-  const GET_COMMIT_ID = `
-    function getCommitId() {
-      try {
-        return Array.from(document.querySelectorAll('span'))
-          .filter(item => item.className.indexOf('commitId') > -1)
-          .pop().innerText;
-      } catch(e) {
-        return getCommitId();
-      }
-    }
-  `;
-  const CALL_GET_COMMIT_ID = `
-    ${GET_COMMIT_ID}
+  const APPLY_DARK_THEME = `
     const callback = arguments[arguments.length - 1];
-    setTimeout(() => {
-      callback(getCommitId());
-    }, 500);
-  `;
-  const BUILD_CLICK = `
-    try {
-      const callback = arguments[arguments.length - 1];
+    (function darkTheme() {
+      try {
+        // the css we are going to inject
+        const css = 'html {filter: invert(85%) hue-rotate(160deg) contrast(1.2);}' +
+            'img,video,canvas,bwp-video {filter: invert(100%) hue-rotate(-160deg) contrast(1.0);',
+            head = document.getElementsByTagName('head')[0],
+            style = document.createElement('style');
 
-      // 兜底超时
-      // 当进入某些页面时候卡顿，刷新页面
-      setTimeout(() => {
-        try {
-          Array.from(document.querySelectorAll('button')).filter(item => item.innerText.contains('跳过')).pop().click();
-          Array.from(document.querySelectorAll('a')).filter(item => item.innerText.contains('跳过')).pop().click();
-        } catch (e) {}
-      }, 8000);
-
-      (function () {
-        let building = false;
-        let interval = setInterval(() =>{
-          const btn = Array.from(document.querySelectorAll('button'))
-            .filter(item => item.innerText === '预发发布' || item.innerText === '重新发布' || item.innerText === '知道了' || item.innerText === '确 定').pop();
-          if (!btn.disabled) {
-            if (!building) {
-              btn.click();
-              building = true;
-            } else {
-              if (!document.querySelector('.next-icon-loading')) {
-                // 确保 loading 结束
-                clearInterval(interval);
-                setTimeout(() => callback(), 300);
-              }
-            }
-          } else if (!building) {
-            const cancelBtn = Array.from(document.querySelectorAll('button'))
-              .filter(item => item.innerText === '取消编译').pop();
-            if (cancelBtn) {
-              cancelBtn.click();
-            }
-          }
-        }, 1000);
-      })();
-    } catch(e) {}
+        style.type = 'text/css';
+        if (style.styleSheet){
+            style.styleSheet.cssText = css;
+        } else {
+            style.appendChild(document.createTextNode(css));
+        }
+        head.appendChild(style);
+        callback();
+        return null;
+      } catch(e) {
+        return darkTheme();
+      }
+    })();
   `;
 
   try {
     // init
     console.log('Waiting for 3s to login');
     await driver.manage().setTimeouts({ script: 3000000000 });
-    await driver.get(solutionUrl);
+    await driver.get(articleListUrl);
+    await driver.manage().window().maximize();
     try {
-      await driver.wait(until.urlIs(solutionUrl), 5000);
+      await driver.wait(until.urlIs(articleListUrl), 5000);
     } catch (e) {
-      console.log('Session expired, login to alibaba-inc.com');
+      console.log('Session expired, login to csdn.net');
       await driver.quit();
       driver = await new Builder()
         .forBrowser('chrome')
-        .setChromeOptions(getOptions(false, userDataDir, solutionUrl))
+        .setChromeOptions(getOptions(false, userDataDir, articleListUrl))
         .build();
-      await driver.get(solutionUrl);
-      await driver.wait(until.urlIs(solutionUrl), 1000000000);
-      console.log('You have logged in alibaba-inc.com, please retry');
+      await driver.get(articleListUrl);
+      await driver.wait(until.urlIs(articleListUrl), 1000000000);
+      console.log('You have logged in csdn.net, please retry');
       await driver.quit();
       process.exit(0);
     }
 
-    // init state
-    let localCommitId = gitCommitId({ cwd: process.cwd() });
-    let remoteCommitId = await driver.executeAsyncScript(CALL_GET_COMMIT_ID);
-    console.log('Local commit id:', localCommitId || 'empty, force rebuild');
+    // theme
+    await driver.executeAsyncScript(APPLY_DARK_THEME);
 
-    // biz
-    while (localCommitId !== remoteCommitId) {
-      console.log(`Not Synced, remote commit id: ${remoteCommitId}, building`);
-      await driver.executeAsyncScript(BUILD_CLICK);
-      remoteCommitId = await driver.executeAsyncScript(CALL_GET_COMMIT_ID);
-      if (!localCommitId) {
-        localCommitId = remoteCommitId;
-      }
-      console.log('Remote commit id:', remoteCommitId);
+    // find anchor and navigate to
+    let articleAnchor;
+    while (!articleAnchor) {
+      await delay(300);
+      console.log('Finding anchor element, ' + articleName);
+      articleAnchor = await findElementsWithTextUntilLocated(driver, 'a', articleName);
     }
-    console.log('Synced, not need to build');
-    notify(solutionId);
+    console.log('Found anchor element, ' + articleName);
+    const articleHref = await articleAnchor.getAttribute('href');
+    console.log('Found anchor link, ' + articleHref);
+    await driver.get(articleHref);
+    await driver.executeAsyncScript(APPLY_DARK_THEME);
+
+    // get local file content
+    const articleFilePath = path.join(process.cwd(), articleFileName);
+    const localArticleContent = fs.readFileSync(articleFilePath).toString();
+
+    // fill input with content
+    let articleInput;
+    while (!articleInput) {
+      await delay(30);
+      console.log('Finding input element, ' + articleName);
+      articleInput = await findElementsUntilLocated(driver, 'input#import-markdown-file-input');
+    }
+    console.log('Found input element, ' + articleName);
+    await syncArticle(articleInput, articleFilePath);
+
+    // event loop to watch file changes
+    const chokidar = require('chokidar');
+    chokidar.watch(articleFilePath).on('all', (event, path) => {
+      if (event === 'change') {
+        syncArticle(articleInput, articleFilePath).then(e => {
+          console.log('Input element synced, ' + articleName);
+          notify('Input element synced, ' + articleName);
+        });
+      }
+    });
+
+    // debug
+    while (true) {
+      await delay(100000000);
+    }
+    // console.log('Synced, ' + articleName);
+    // notify(articleName);
   } finally {
     await driver.quit();
   }

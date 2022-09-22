@@ -1,6 +1,6 @@
 {
-  "name": "csdn-article-auto-pub",
-  "version": "1.4.0",
+  "name": "sync-csdn-article-markdown",
+  "version": "0.0.1",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -9,15 +9,14 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "await-delay": "^1.0.0",
+    "chokidar": "^3.5.3",
     "chromedriver": "*",
     "git-commit-id": "^2.0.1",
     "node-notifier": "^8.0.0",
     "selenium-webdriver": "*"
   },
   "bin": {
-    "csdn-article-auto-pub": "./index.js"
-  },
-  "publishConfig": {
-    "registry": "https://registry.npm.alibaba-inc.com"
+    "sync-csdn-article-markdown": "./index.js"
   }
 }
